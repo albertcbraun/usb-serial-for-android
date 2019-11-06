@@ -52,12 +52,15 @@ public class WriteBytesActivity extends Activity {
     private static final String TAG = WriteBytesActivity.class.getSimpleName();
     private static final long INITIAL_WRITE_DELAY = 0L;
     private static final long WRITE_DELAY_INTERVAL = 100L;
+    private static final int BAUD_RATE = 115200;
+    private static final int DATA_BITS = 8;
 
     private volatile SerialInputOutputManager serialIOManager;
     private UsbSerialPort usbSerialPort = null;
     private ExecutorService serialIOExecutor;
     private ScheduledExecutorService writeBytesExecutor;
     private TextView statusTextView;
+    private TextView diagnosticInfo;
     private final SerialInputOutputManager.Listener ioListener = new IOListener();
 
     @Override
@@ -65,6 +68,7 @@ public class WriteBytesActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.write_a_byte);
         statusTextView = findViewById(R.id.status);
+        diagnosticInfo = findViewById(R.id.diagnostic_info);
         ToggleButton writeBytesToggle = findViewById(R.id.write_bytes_toggle);
         writeBytesToggle.setOnCheckedChangeListener(new ToggleButtonListener());
         UsbManager usbManager = (UsbManager)getSystemService(Context.USB_SERVICE);
@@ -107,19 +111,11 @@ public class WriteBytesActivity extends Activity {
 
             try {
                 usbSerialPort.open(connection);
-                usbSerialPort.setParameters(115200, 8,
+                usbSerialPort.setParameters(BAUD_RATE, DATA_BITS,
                         UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
                 statusTextView.setText(getString(R.string.serial_device_format,
                         usbSerialPort.getClass().getSimpleName()));
-
-//                showStatus(mDumpTextView, "CD  - Carrier Detect", usbSerialPort.getCD());
-//                showStatus(mDumpTextView, "CTS - Clear To Send", usbSerialPort.getCTS());
-//                showStatus(mDumpTextView, "DSR - Data Set Ready", usbSerialPort.getDSR());
-//                showStatus(mDumpTextView, "DTR - Data Terminal Ready", usbSerialPort.getDTR());
-//                showStatus(mDumpTextView, "DSR - Data Set Ready", usbSerialPort.getDSR());
-//                showStatus(mDumpTextView, "RI  - Ring Indicator", usbSerialPort.getRI());
-//                showStatus(mDumpTextView, "RTS - Request To Send", usbSerialPort.getRTS());
-
+                appendDiagnosticInfo();
             } catch (IOException ioException) {
                 Log.e(TAG, "Error setting up device.", ioException);
                 statusTextView.setText(getString(R.string.error_opening_device_format,
@@ -134,6 +130,22 @@ public class WriteBytesActivity extends Activity {
             }
         }
         onDeviceStateChange();
+    }
+
+    private void appendDiagnosticInfo() {
+        diagnosticInfo.setText("");
+        try {
+            diagnosticInfo.append(String.format("CD  - Carrier Detect: %s", usbSerialPort.getCD()));
+            diagnosticInfo.append(String.format("CTS - Clear To Send: %s", usbSerialPort.getCTS()));
+            diagnosticInfo.append(String.format("DSR - Data Set Ready: %s", usbSerialPort.getDSR()));
+            diagnosticInfo.append(String.format("DTR - Data Terminal Ready: %s", usbSerialPort.getDTR()));
+            diagnosticInfo.append(String.format("DSR - Data Set Ready: %s", usbSerialPort.getDSR()));
+            diagnosticInfo.append(String.format("RI  - Ring Indicator: %s", usbSerialPort.getRI()));
+            diagnosticInfo.append(String.format("RTS - Request To Send: %s", usbSerialPort.getRTS()));
+        } catch (Exception exception) {
+            Log.e(TAG, "Could not print diagnostic info", exception);
+        }
+
     }
 
     private void tearDownIO() {

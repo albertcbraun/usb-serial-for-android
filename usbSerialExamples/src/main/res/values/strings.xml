@@ -3,6 +3,7 @@
 
     <string name="app_title">USB Serial Example</string>
     <string name="app_name">Serial Example</string>
+    <string name="status">Status</string>
     <string name="refreshing">Refreshing…</string>
     <string name="textBtnRTS">RTS - Request To Send</string>
     <string name="textBtnDTR">DTR - Data Terminal Ready</string>
@@ -11,4 +12,5 @@
     <string name="serial_device_format" formatted="true">Serial Device: %s</string>
     <string name="error_opening_device_format" formatted="true">Error Opening Device: %s</string>
     <string name="cannot_write_bytes">Cannot write bytes: USB serial port is not available.</string>
+<!--    <string name="diagnostic_info">Diagnostic Info</string>-->
 </resources>
