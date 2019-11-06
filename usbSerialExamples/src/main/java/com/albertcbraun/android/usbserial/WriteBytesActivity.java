@@ -45,117 +45,72 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Write a byte to a USB Serial port
- * @author albertcbraun
+ * Repeatedly write a byte to a USB Serial port
  */
 public class WriteBytesActivity extends Activity {
 
-    private final String TAG = WriteBytesActivity.class.getSimpleName();
+    private static final String TAG = WriteBytesActivity.class.getSimpleName();
+    private static final long INITIAL_WRITE_DELAY = 0L;
+    private static final long WRITE_DELAY_INTERVAL = 100L;
+
+    private volatile SerialInputOutputManager serialIOManager;
+    private UsbSerialPort usbSerialPort = null;
     private ExecutorService serialIOExecutor;
     private ScheduledExecutorService writeBytesExecutor;
-    private UsbSerialPort usbSerialPort = null;
     private TextView statusTextView;
-    private ToggleButton writeBytesToggle;
-    private SerialInputOutputManager serialInputOutputManager;
-
-    private final SerialInputOutputManager.Listener serialIOManagerListener =
-            new SerialInputOutputManager.Listener() {
-
-        @Override
-        public void onRunError(Exception e) {
-            Log.d(TAG, "Runner stopped.");
-        }
-
-        @Override
-        public void onNewData(final byte[] data) {
-            try {
-                Log.w(TAG, "received new data! should we have?");
-                Log.w(TAG, new String(data, "UTF-8"));
-            } catch (IOException ioe) {
-                Log.e(TAG,"Could not log byte array", ioe);
-            }
-        }
-    };
-
-    private final Runnable writeByteTask = new Runnable() {
-
-        @Override
-        public void run() {
-            if (serialInputOutputManager != null) {
-                serialInputOutputManager.writeAsync(new byte[]{0});
-            }
-        }
-    };
+    private final SerialInputOutputManager.Listener ioListener = new IOListener();
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.write_a_byte);
         statusTextView = findViewById(R.id.status);
-        writeBytesToggle = findViewById(R.id.write_bytes_toggle);
-        writeBytesToggle.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                if (writeBytesExecutor == null) {
-                    writeBytesExecutor = Executors.newSingleThreadScheduledExecutor();
-                }
-                if (isChecked) {
-                    writeBytesExecutor.scheduleAtFixedRate(writeByteTask, 0L,
-                            100L, TimeUnit.MILLISECONDS);
-                } else {
-                    writeBytesExecutor.shutdownNow();
-                    writeBytesExecutor = null;
-                }
-            }
-        });
+        ToggleButton writeBytesToggle = findViewById(R.id.write_bytes_toggle);
+        writeBytesToggle.setOnCheckedChangeListener(new ToggleButtonListener());
         UsbManager usbManager = (UsbManager)getSystemService(Context.USB_SERVICE);
         List<UsbSerialDriver> drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager);
         if (drivers.size() > 0) {
             UsbSerialDriver driver = drivers.get(0);
             usbSerialPort = driver.getPorts().get(0);
-            startIoManager();
+            setupIO();
+        } else {
+            Log.v(TAG, "USB Serial Probe did not obtain serial USB driver");
         }
     }
-
 
     @Override
     protected void onPause() {
         super.onPause();
-        stopIoManager();
-        if (usbSerialPort != null) {
-            try {
-                usbSerialPort.close();
-            } catch (IOException e) {
-                // Ignore.
-            }
+        tearDownIO();
+        try {
+            if (usbSerialPort != null)  usbSerialPort.close();
+        } catch(IOException ioException) {
+            Log.e(TAG, "Could not close USB Serial Port", ioException);
+        } finally {
             usbSerialPort = null;
         }
-        finish();
     }
-
-//    void showStatus(TextView theTextView, String theLabel, boolean theValue){
-//        String msg = theLabel + ": " + (theValue ? "enabled" : "disabled") + "\n";
-//        theTextView.append(msg);
-//    }
 
     @Override
     protected void onResume() {
         super.onResume();
         Log.d(TAG, "Resumed, port=" + usbSerialPort);
         if (usbSerialPort == null) {
-            statusTextView.setText("No serial device.");
+            statusTextView.setText(R.string.no_serial_device);
         } else {
             final UsbManager usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
-
             UsbDeviceConnection connection = usbManager.openDevice(usbSerialPort.getDriver().getDevice());
             if (connection == null) {
-                statusTextView.setText("Opening device failed");
+                statusTextView.setText(R.string.opening_device_failed);
                 return;
             }
 
             try {
                 usbSerialPort.open(connection);
-                usbSerialPort.setParameters(115200, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+                usbSerialPort.setParameters(115200, 8,
+                        UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE);
+                statusTextView.setText(getString(R.string.serial_device_format,
+                        usbSerialPort.getClass().getSimpleName()));
 
 //                showStatus(mDumpTextView, "CD  - Carrier Detect", usbSerialPort.getCD());
 //                showStatus(mDumpTextView, "CTS - Clear To Send", usbSerialPort.getCTS());
@@ -165,51 +120,87 @@ public class WriteBytesActivity extends Activity {
 //                showStatus(mDumpTextView, "RI  - Ring Indicator", usbSerialPort.getRI());
 //                showStatus(mDumpTextView, "RTS - Request To Send", usbSerialPort.getRTS());
 
-            } catch (IOException e) {
-                Log.e(TAG, "Error setting up device: " + e.getMessage(), e);
-                statusTextView.setText("Error opening device: " + e.getMessage());
+            } catch (IOException ioException) {
+                Log.e(TAG, "Error setting up device.", ioException);
+                statusTextView.setText(getString(R.string.error_opening_device_format,
+                        ioException.getMessage()));
                 try {
                     usbSerialPort.close();
-                } catch (IOException e2) {
-                    // Ignore.
+                } catch (IOException ioException2) {
+                    Log.e(TAG, "Could not close USB Serial Port", ioException2);
+                } finally {
+                    usbSerialPort = null;
                 }
-                usbSerialPort = null;
-                return;
             }
-            statusTextView.setText("Serial device: " + usbSerialPort.getClass().getSimpleName());
         }
         onDeviceStateChange();
     }
 
-    private void stopIoManager() {
-        if (serialInputOutputManager != null) {
-            Log.i(TAG, "Stopping io manager ..");
-            serialInputOutputManager.stop();
-            serialInputOutputManager = null;
-            if (serialIOExecutor != null) {
-                serialIOExecutor.shutdownNow();
-                serialIOExecutor = null;
-            }
+    private void tearDownIO() {
+        Log.v(TAG, "tearDownIO");
+        if (serialIOExecutor != null) {
+            serialIOExecutor.shutdownNow();
+            serialIOExecutor = null;
+        }
+        if (writeBytesExecutor != null) {
+            writeBytesExecutor.shutdownNow();
+            writeBytesExecutor = null;
+        }
+        if (serialIOManager != null) {
+            serialIOManager.stop();
+            serialIOManager = null;
         }
     }
 
-    private void startIoManager() {
+    private void setupIO() {
+        Log.v(TAG, "setupIO");
         if (usbSerialPort == null) {
-            statusTextView.setText("Cannot write bytes. a USB serial port is not available.");
+            statusTextView.setText(R.string.cannot_write_bytes);
         } else {
-            Log.i(TAG, "Starting io manager ..");
-            serialInputOutputManager = new SerialInputOutputManager(usbSerialPort, serialIOManagerListener);
+            Log.v(TAG, "Starting io manager ..");
+            serialIOManager = new SerialInputOutputManager(usbSerialPort, ioListener);
             if (serialIOExecutor == null) {
                 serialIOExecutor = Executors.newSingleThreadExecutor();
             }
-            serialIOExecutor.submit(serialInputOutputManager);
+            serialIOExecutor.submit(serialIOManager);
         }
     }
 
     private void onDeviceStateChange() {
-        stopIoManager();
-        startIoManager();
+        tearDownIO();
+        setupIO();
     }
 
+    private class WriteByteTask implements Runnable {
+        @Override
+        public void run() {
+            Log.v(TAG, "WriteByteTask run");
+            if (serialIOManager != null) {
+                serialIOManager.writeAsync(new byte[]{0});
+            }
+        }
+    }
 
+    private class ToggleButtonListener implements ToggleButton.OnCheckedChangeListener {
+        @Override
+        public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+            if (isChecked) {
+                if (serialIOManager == null) {
+                    Log.v(TAG, "serialIOManager is null. setting button to off again.");
+                    buttonView.setChecked(false);
+                } else {
+                    if (writeBytesExecutor == null) {
+                        writeBytesExecutor = Executors.newSingleThreadScheduledExecutor();
+                    }
+                    writeBytesExecutor.scheduleAtFixedRate(new WriteByteTask(), INITIAL_WRITE_DELAY,
+                            WRITE_DELAY_INTERVAL, TimeUnit.MILLISECONDS);
+                }
+            } else {
+                if (writeBytesExecutor != null) {
+                    writeBytesExecutor.shutdownNow();
+                }
+                writeBytesExecutor = null;
+            }
+        }
+    }
 }

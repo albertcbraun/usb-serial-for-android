@@ -7,6 +7,7 @@
     <uses-feature android:name="android.hardware.usb.host" />
 
     <application
+        android:name="com.albertcbraun.android.usbserial.WriteBytesApplication"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name" >
         <activity
@@ -27,7 +28,7 @@
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" >
         </activity>
         <activity android:name="com.albertcbraun.android.usbserial.WriteBytesActivity"
-            android:label="Write A Byte"
+            android:label="WriteBytes"
             android:theme="@android:style/Theme.DeviceDefault">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
